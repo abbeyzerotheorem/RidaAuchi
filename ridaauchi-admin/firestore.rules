@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && userDoc().data.role == 'admin';
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isActiveRider() {
+      return isSignedIn()
+        && userDoc().data.role == 'rider'
+        && userDoc().data.get('isSuspended', false) == false;
+    }
+
+    function isApprovedDriver() {
+      return isSignedIn()
+        && userDoc().data.role == 'driver'
+        && userDoc().data.get('isApproved', false) == true
+        && userDoc().data.get('isSuspended', false) == false;
+    }
+
+    function rideBookingFieldsUnchanged() {
+      return request.resource.data.riderId == resource.data.riderId
+        && request.resource.data.pickupAddress == resource.data.pickupAddress
+        && request.resource.data.destinationAddress == resource.data.destinationAddress
+        && request.resource.data.estimatedFare == resource.data.estimatedFare;
+    }
+
+    function driverAcceptRide() {
+      return isApprovedDriver()
+        && resource.data.status == 'searching'
+        && request.resource.data.status == 'accepted'
+        && request.resource.data.driverId == request.auth.uid
+        && request.resource.data.driverName is string
+        && rideBookingFieldsUnchanged()
+        && (!('driverId' in resource.data) || resource.data.driverId == null);
+    }
+
+    function driverProgressRide() {
+      return isApprovedDriver()
+        && resource.data.driverId == request.auth.uid
+        && request.resource.data.driverId == request.auth.uid
+        && rideBookingFieldsUnchanged()
+        && (
+          (resource.data.status == 'accepted' && request.resource.data.status == 'arrived')
+          || (resource.data.status == 'arrived' && request.resource.data.status == 'started')
+          || (resource.data.status == 'started' && request.resource.data.status == 'completed')
+        );
+    }
+
+    function riderCancelRide() {
+      return isActiveRider()
+        && resource.data.riderId == request.auth.uid
+        && request.resource.data.status == 'cancelled'
+        && resource.data.status in ['searching', 'accepted', 'arrived', 'started']
+        && rideBookingFieldsUnchanged()
+        && request.resource.data.driverId == resource.data.driverId
+        && request.resource.data.get('cancelledBy', '') == 'rider';
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+
+      allow create: if isOwner(userId)
+        && request.resource.data.role in ['rider', 'driver']
+        && request.resource.data.get('isApproved', false) == false
+        && request.resource.data.get('isRejected', false) == false
+        && request.resource.data.get('isSuspended', false) == false;
+
+      allow update: if isAdmin()
+        || (
+          isOwner(userId)
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.get('isApproved', false) == resource.data.get('isApproved', false)
+          && request.resource.data.get('isRejected', false) == resource.data.get('isRejected', false)
+          && request.resource.data.get('isSuspended', false) == resource.data.get('isSuspended', false)
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /rides/{rideId} {
+      allow read: if isSignedIn() && (
+        isAdmin()
+        || resource.data.riderId == request.auth.uid
+        || resource.data.driverId == request.auth.uid
+        || (isApprovedDriver() && resource.data.status == 'searching')
+      );
+
+      allow create: if isActiveRider()
+        && request.resource.data.riderId == request.auth.uid
+        && request.resource.data.status == 'searching'
+        && (!('driverId' in request.resource.data) || request.resource.data.driverId == null);
+
+      allow update: if isAdmin()
+        || driverAcceptRide()
+        || driverProgressRide()
+        || riderCancelRide();
+
+      allow delete: if isAdmin();
+    }
+  }
+}

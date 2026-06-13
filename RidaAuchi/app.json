@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "RidaAuchi",
+    "slug": "RidaAuchi",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.abbeybear.RidaAuchi",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#F04E05"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F04E05",
+        "foregroundImage": "./assets/icon.png",
+        "backgroundImage": "./assets/splash.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.abbeybear.RidaAuchi"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "001c4107-2a67-4af9-bca5-cac2b3b0487a"
+      }
+    },
+    "plugins": [
+      "expo-splash-screen"
+    ]
+  }
+}
