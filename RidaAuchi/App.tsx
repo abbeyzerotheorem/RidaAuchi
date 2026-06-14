@@ -28,13 +28,15 @@ import {
 } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { calculateDistanceAndFare, reverseGeocodeCoords } from './services/distanceService';
-import { TextInput } from 'react-native'; // Add this
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth'; // Add this
-import { setDoc } from 'firebase/firestore'; // Add this
+import { TextInput } from 'react-native';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { setDoc } from 'firebase/firestore';
 import * as SplashScreen from 'expo-splash-screen';
 import CustomSplashScreen from './components/SplashScreen';
 
 SplashScreen.preventAutoHideAsync();
+
+const FIXED_FARE = 7000; // ₦7,000 fixed fare for all rides
 
 const AUCHI_DESTINATIONS = [
   { name: 'Federal Poly Gate', lat: 7.0736, lng: 6.2636, description: 'Main Campus Entrance' },
@@ -281,7 +283,7 @@ function SuspendedScreen({ onLogout }) {
   );
 }
 
-// ============ DRIVER APP ============
+// ============ DRIVER APP (PRODUCTION) ============
 function DriverApp() {
   const [user, setUser] = useState(null);
   const [availableRides, setAvailableRides] = useState([]);
@@ -311,9 +313,7 @@ function DriverApp() {
 
   useEffect(() => {
     return () => {
-      if (rideListener) {
-        rideListener();
-      }
+      if (rideListener) rideListener();
     };
   }, [rideListener]);
 
@@ -336,7 +336,7 @@ function DriverApp() {
   const handleAcceptRide = async (ride) => {
     Alert.alert(
       'Accept Ride',
-      `Accept ride from ${ride.pickupAddress} to ${ride.destinationAddress}?`,
+      `Pickup: ${ride.pickupAddress}\n${ride.pickupLandmark ? `Landmark: ${ride.pickupLandmark}` : ''}\nDest: ${ride.destinationAddress}\nFare: ₦${FIXED_FARE}`,
       [
         { text: 'No', style: 'cancel' },
         {
@@ -350,7 +350,6 @@ function DriverApp() {
               const listener = onSnapshot(doc(db, 'rides', ride.id), (docSnap) => {
                 if (!docSnap.exists()) return;
                 const rideData = { id: docSnap.id, ...docSnap.data() };
-
                 setCurrentRide(rideData);
 
                 if (rideData.status === 'cancelled') {
@@ -391,7 +390,7 @@ function DriverApp() {
       case 'arrived':
         await updateRideStatus(currentRide.id, 'arrived');
         setCurrentRide({ ...currentRide, status: 'arrived' });
-        Alert.alert('Arrived', 'Rider has been notified');
+        Alert.alert('Arrived', 'Rider has been notified that you are at their pickup location');
         break;
       case 'start':
         await updateRideStatus(currentRide.id, 'started');
@@ -406,7 +405,7 @@ function DriverApp() {
         await updateRideStatus(currentRide.id, 'completed', {
           completedAt: new Date().toISOString(),
         });
-        Alert.alert('Complete', `Ride completed! Cash payment: ₦${currentRide.estimatedFare}`);
+        Alert.alert('Complete', `Ride completed! Collect ₦${FIXED_FARE} from the rider`);
         setCurrentRide(null);
         setIsOnline(true);
         loadAvailableRides(true);
@@ -450,7 +449,7 @@ function DriverApp() {
                 </Text>
                 <Text style={styles.historyPickup}>From: {ride.pickupAddress}</Text>
                 <Text style={styles.historyDest}>To: {ride.destinationAddress}</Text>
-                <Text style={styles.historyFare}>₦{ride.estimatedFare}</Text>
+                <Text style={styles.historyFare}>₦{ride.estimatedFare || FIXED_FARE}</Text>
                 <Text style={styles.driverHistoryStatus}>Status: {ride.status}</Text>
               </View>
             ))
@@ -471,15 +470,19 @@ function DriverApp() {
         </View>
 
         <View style={styles.activeRideCard}>
-          <Text style={styles.label}>From</Text>
+          <Text style={styles.label}>📍 Pickup Location</Text>
           <Text style={styles.address}>{currentRide.pickupAddress}</Text>
+          {currentRide.pickupLandmark && (
+            <Text style={styles.landmarkText}>🏠 Landmark: {currentRide.pickupLandmark}</Text>
+          )}
 
-          <Text style={styles.label}>To</Text>
+          <Text style={styles.label}>🎯 Destination</Text>
           <Text style={styles.address}>{currentRide.destinationAddress}</Text>
 
           <View style={styles.fareBox}>
-            <Text style={styles.fareAmount}>₦{currentRide.estimatedFare}</Text>
-            <Text style={styles.fareNote}>Cash payment expected</Text>
+            <Text style={styles.fareLabel}>Fare</Text>
+            <Text style={styles.fareAmount}>₦{FIXED_FARE}</Text>
+            <Text style={styles.fareNote}>Cash payment from rider</Text>
           </View>
 
           <View style={styles.buttonGroup}>
@@ -487,7 +490,7 @@ function DriverApp() {
               <TouchableOpacity
                 style={styles.actionButton}
                 onPress={() => handleRideAction('arrived')}>
-                <Text style={styles.actionButtonText}>Arrived at Pickup</Text>
+                <Text style={styles.actionButtonText}>I've Arrived at Pickup</Text>
               </TouchableOpacity>
             )}
 
@@ -529,9 +532,7 @@ function DriverApp() {
           onPress={() => {
             const goingOnline = !isOnline;
             setIsOnline(goingOnline);
-            if (goingOnline) {
-              loadAvailableRides(true);
-            }
+            if (goingOnline) loadAvailableRides(true);
           }}>
           <Text style={styles.onlineButtonText}>
             {isOnline ? '🟢 Online - Accepting Rides' : '⚫ Offline - Tap to Go Online'}
@@ -562,9 +563,12 @@ function DriverApp() {
               availableRides.map((ride) => (
                 <View key={ride.id} style={styles.rideCard}>
                   <Text style={styles.ridePickup}>📍 {ride.pickupAddress}</Text>
+                  {ride.pickupLandmark && (
+                    <Text style={styles.rideLandmark}>🏠 {ride.pickupLandmark}</Text>
+                  )}
                   <Text style={styles.rideDest}>🎯 {ride.destinationAddress}</Text>
                   <View style={styles.rideFooter}>
-                    <Text style={styles.rideFare}>₦{ride.estimatedFare}</Text>
+                    <Text style={styles.rideFare}>₦{FIXED_FARE}</Text>
                     <TouchableOpacity
                       style={styles.acceptButton}
                       onPress={() => handleAcceptRide(ride)}>
@@ -585,16 +589,17 @@ function DriverApp() {
   );
 }
 
-// ============ MAIN RIDE APP ============
+// ============ RIDER APP (PRODUCTION) ============
 function RideApp() {
   const [user, setUser] = useState(null);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [pickupAddress, setPickupAddress] = useState('Detecting...');
+  const [pickupLandmark, setPickupLandmark] = useState('');
   const [selectedDestination, setSelectedDestination] = useState(null);
   const [destinationCoords, setDestinationCoords] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [step, setStep] = useState('pickup');
-  const [estimatedFare, setEstimatedFare] = useState(null);
+  const [estimatedFare] = useState(FIXED_FARE);
   const [rideDistance, setRideDistance] = useState(null);
   const [rideDuration, setRideDuration] = useState(null);
   const [rideStatus, setRideStatus] = useState(null);
@@ -602,19 +607,17 @@ function RideApp() {
   const [unsubscribeRide, setUnsubscribeRide] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [rideHistory, setRideHistory] = useState([]);
-  const [refreshing, setRefreshing] = useState(false);
   const lastNotifiedStatusRef = useRef(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
     });
-
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    let locationSubscription: Location.LocationSubscription | null = null;
+    let locationSubscription = null;
     let settled = false;
 
     (async () => {
@@ -628,22 +631,19 @@ function RideApp() {
           return;
         }
 
-        // Get a quick initial fix first so the UI is not blank
         const initial = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
         setCurrentLocation(initial.coords);
 
-        // Start watching for a more accurate GPS fix (BestForNavigation)
         locationSubscription = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.BestForNavigation,
-            distanceInterval: 0, // fire on every improved reading
+            distanceInterval: 0,
             timeInterval: 1000,
           },
           async (loc) => {
             if (settled) return;
-            // Accept the fix once accuracy is within 20 metres or after 8 seconds
             if (loc.coords.accuracy !== null && loc.coords.accuracy <= 20) {
               settled = true;
               locationSubscription?.remove();
@@ -658,7 +658,6 @@ function RideApp() {
           }
         );
 
-        // Fallback: if GPS hasn't settled within 8 seconds, use best reading so far
         setTimeout(async () => {
           if (settled) return;
           settled = true;
@@ -687,11 +686,8 @@ function RideApp() {
   }, [user]);
 
   useEffect(() => {
-    // Cleanup ride listener
     return () => {
-      if (unsubscribeRide) {
-        unsubscribeRide();
-      }
+      if (unsubscribeRide) unsubscribeRide();
     };
   }, [unsubscribeRide]);
 
@@ -713,24 +709,7 @@ function RideApp() {
       return;
     }
 
-    setIsLoading(true);
-
-    try {
-      const result = await calculateDistanceAndFare(
-        { lat: currentLocation.latitude, lng: currentLocation.longitude },
-        destinationCoords
-      );
-
-      setEstimatedFare(result.fare);
-      setRideDistance(result.distanceKm);
-      setRideDuration(result.durationMinutes);
-      setStep('confirm');
-    } catch (error) {
-      console.error('Fare calculation error:', error);
-      Alert.alert('Error', 'Could not calculate fare. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
+    setStep('confirm');
   };
 
   const handleConfirmRide = async () => {
@@ -745,19 +724,16 @@ function RideApp() {
         riderId: user.uid,
         riderEmail: user.email,
         pickupAddress: pickupAddress,
+        pickupLandmark: pickupLandmark.trim(),
         destinationAddress: selectedDestination,
         pickupLocation: currentLocation,
         destinationLocation: destinationCoords,
-        estimatedFare: estimatedFare,
-        actualDistanceKm: rideDistance,
-        estimatedDuration: rideDuration,
-        distanceKm: rideDistance,
+        estimatedFare: FIXED_FARE,
         status: 'searching'
       });
 
       setCurrentRideId(rideId);
 
-      // Set up real-time listener
       const unsubscribe = onSnapshot(doc(db, 'rides', rideId), (docSnap) => {
         if (!docSnap.exists()) return;
 
@@ -774,22 +750,20 @@ function RideApp() {
             Alert.alert('Driver Found', `${rideData.driverName || 'Driver'} has accepted your ride`);
             break;
           case 'arrived':
-            Alert.alert('Driver Arrived', 'Your driver is waiting for you');
+            Alert.alert('Driver Arrived', 'Your driver is waiting at your pickup location');
             break;
           case 'started':
-            Alert.alert('Ride Started', 'You are on your way');
+            Alert.alert('Ride Started', 'You are on your way to your destination');
             break;
           case 'completed':
-            Alert.alert('Ride Complete', `Thank you for riding!\n\nPay ₦${rideData.estimatedFare} in cash`);
+            Alert.alert('Ride Complete', `Thank you for riding with RidaAuchi!\n\nPlease pay ₦${FIXED_FARE} to your driver`);
             setTimeout(() => {
               setStep('pickup');
               setSelectedDestination(null);
               setDestinationCoords(null);
-              setEstimatedFare(null);
-              setRideDistance(null);
-              setRideDuration(null);
               setCurrentRideId(null);
               setRideStatus(null);
+              setPickupLandmark('');
               lastNotifiedStatusRef.current = null;
               unsubscribe();
             }, 3000);
@@ -816,7 +790,7 @@ function RideApp() {
   const handleCancelRide = () => {
     Alert.alert(
       'Cancel Ride',
-      'Are you sure you want to cancel?',
+      'Are you sure you want to cancel this ride?',
       [
         { text: 'No', style: 'cancel' },
         {
@@ -836,7 +810,6 @@ function RideApp() {
             setRideStatus(null);
             setCurrentRideId(null);
             lastNotifiedStatusRef.current = null;
-            Alert.alert('Ride Cancelled');
           }
         }
       ]
@@ -848,7 +821,7 @@ function RideApp() {
     setStep('pickup');
     setSelectedDestination(null);
     setDestinationCoords(null);
-    setEstimatedFare(null);
+    setPickupLandmark('');
   };
 
   // History Screen
@@ -882,7 +855,7 @@ function RideApp() {
                 </View>
                 <Text style={styles.historyPickup}>From: {ride.pickupAddress}</Text>
                 <Text style={styles.historyDest}>To: {ride.destinationAddress}</Text>
-                <Text style={styles.historyFare}>₦{ride.estimatedFare}</Text>
+                <Text style={styles.historyFare}>₦{ride.estimatedFare || FIXED_FARE}</Text>
               </View>
             ))
           )}
@@ -907,6 +880,15 @@ function RideApp() {
           <View style={styles.card}>
             <Text style={styles.label}>📍 Pickup Location</Text>
             <Text style={styles.address}>{pickupAddress}</Text>
+
+            <Text style={styles.landmarkLabel}>🏠 Describe your exact pickup point (optional)</Text>
+            <TextInput
+              style={styles.landmarkInput}
+              placeholder="E.g. House 7, Blue building, Beside church"
+              placeholderTextColor="#999"
+              value={pickupLandmark}
+              onChangeText={setPickupLandmark}
+            />
 
             <View style={styles.divider} />
 
@@ -942,7 +924,7 @@ function RideApp() {
               <TouchableOpacity
                 style={styles.primaryButton}
                 onPress={handleRequestRide}>
-                <Text style={styles.primaryButtonText}>Request Ride to {selectedDestination}</Text>
+                <Text style={styles.primaryButtonText}>Next →</Text>
               </TouchableOpacity>
             )}
 
@@ -957,44 +939,40 @@ function RideApp() {
     );
   }
 
-  // Confirm Fare Screen
+  // Confirm Ride Screen
   if (step === 'confirm') {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Ride Details</Text>
+          <Text style={styles.headerTitle}>Confirm Your Ride</Text>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.label}>From</Text>
+          <Text style={styles.label}>📍 Pickup</Text>
           <Text style={styles.address}>{pickupAddress}</Text>
+          {pickupLandmark.trim() ? (
+            <Text style={styles.landmarkConfirmText}>🏠 {pickupLandmark.trim()}</Text>
+          ) : null}
 
-          <Text style={styles.label}>To</Text>
+          <Text style={styles.label}>🎯 Destination</Text>
           <Text style={styles.address}>{selectedDestination}</Text>
 
-          {rideDistance && (
-            <View style={styles.distanceBox}>
-              <Text style={styles.distanceText}>📏 Distance: {rideDistance} km</Text>
-              <Text style={styles.durationText}>⏱️ Est. time: {rideDuration} minutes</Text>
-            </View>
-          )}
-
           <View style={styles.fareBox}>
-            <Text style={styles.fareLabel}>Estimated Fare</Text>
-            <Text style={styles.fareAmount}>₦{estimatedFare}</Text>
-            <Text style={styles.fareNote}>Cash payment to driver</Text>
+            <Text style={styles.fareLabel}>Fare (Fixed)</Text>
+            <Text style={styles.fareAmount}>₦{FIXED_FARE.toLocaleString()}</Text>
+            <Text style={styles.fareNote}>Flat rate for all destinations in Auchi</Text>
           </View>
 
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={handleConfirmRide}>
-            <Text style={styles.primaryButtonText}>Confirm Ride</Text>
+            <Text style={styles.primaryButtonText}>Request Ride — ₦{FIXED_FARE.toLocaleString()}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.secondaryButton}
             onPress={() => setStep('pickup')}>
-            <Text style={styles.secondaryButtonText}>Change Destination</Text>
+            <Text style={styles.secondaryButtonText}>Change Details</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -1006,8 +984,8 @@ function RideApp() {
     const getStatusMessage = () => {
       switch (rideStatus) {
         case 'searching': return 'Finding a driver near you...';
-        case 'accepted': return 'Driver assigned. They are on the way.';
-        case 'arrived': return 'Driver has arrived at your location.';
+        case 'accepted': return 'Driver assigned. They are on the way to your pickup.';
+        case 'arrived': return 'Driver has arrived at your pickup location.';
         case 'started': return 'En route to your destination.';
         case 'completed': return 'Ride completed!';
         default: return 'Processing...';
@@ -1040,11 +1018,22 @@ function RideApp() {
               <View style={styles.routeDotPickup} />
               <Text style={styles.routeText}>{pickupAddress}</Text>
             </View>
+            {pickupLandmark.trim() ? (
+              <View style={styles.routeLandmarkRow}>
+                <Text style={styles.routeLandmarkText}>🏠 {pickupLandmark.trim()}</Text>
+              </View>
+            ) : null}
             <View style={styles.routeLine} />
             <View style={styles.routePoint}>
               <View style={styles.routeDotDest} />
               <Text style={styles.routeText}>{selectedDestination}</Text>
             </View>
+          </View>
+
+          <View style={styles.fareBox}>
+            <Text style={styles.fareLabel}>Fare</Text>
+            <Text style={styles.fareAmount}>₦{FIXED_FARE.toLocaleString()}</Text>
+            <Text style={styles.fareNote}>Pay in cash to driver</Text>
           </View>
 
           {rideStatus !== 'completed' && rideStatus !== 'cancelled' && (
@@ -1073,7 +1062,7 @@ export default function App() {
   const [authUser, setAuthUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
-  const [profileListener, setProfileListener] = useState<(() => void) | null>(null);
+  const [profileListener, setProfileListener] = useState(null);
 
   useEffect(() => {
     async function prepare() {
@@ -1111,9 +1100,7 @@ export default function App() {
       setProfileListener(null);
     }
 
-    if (!authUser) {
-      return;
-    }
+    if (!authUser) return;
 
     setLoadingProfile(true);
     const userRef = doc(db, 'users', authUser.uid);
@@ -1139,9 +1126,7 @@ export default function App() {
     setIsAuthenticated(false);
   };
 
-  if (!appIsReady) {
-    return null;
-  }
+  if (!appIsReady) return null;
 
   if (checkingAuth || (isAuthenticated && loadingProfile)) {
     return (
@@ -1170,9 +1155,7 @@ export default function App() {
       return <DriverApp />;
     }
 
-    if (role === 'rider') {
-      return <RideApp />;
-    }
+    if (role === 'rider') return <RideApp />;
 
     return (
       <View style={styles.centerContainer}>
@@ -1226,7 +1209,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
   splashImage: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     width: '100%',
     height: '100%',
   },
@@ -1341,6 +1324,36 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     lineHeight: 22,
   },
+  landmarkLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#666',
+    marginBottom: 8,
+    marginTop: -10,
+  },
+  landmarkInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+    marginBottom: 5,
+    backgroundColor: '#f9f9f9',
+    color: '#333',
+  },
+  landmarkText: {
+    fontSize: 14,
+    color: '#F04E05',
+    marginBottom: 20,
+    fontStyle: 'italic',
+  },
+  landmarkConfirmText: {
+    fontSize: 14,
+    color: '#F04E05',
+    marginBottom: 20,
+    fontStyle: 'italic',
+    marginTop: -15,
+  },
   divider: {
     height: 1,
     backgroundColor: '#eee',
@@ -1436,21 +1449,6 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 5,
   },
-  distanceBox: {
-    backgroundColor: '#f0f0f0',
-    padding: 12,
-    borderRadius: 10,
-    marginVertical: 10,
-  },
-  distanceText: {
-    fontSize: 14,
-    color: '#333',
-    marginBottom: 5,
-  },
-  durationText: {
-    fontSize: 14,
-    color: '#666',
-  },
   statusIndicator: {
     width: 60,
     height: 60,
@@ -1497,6 +1495,16 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#333',
+  },
+  routeLandmarkRow: {
+    flexDirection: 'row',
+    paddingLeft: 24,
+    marginBottom: 5,
+  },
+  routeLandmarkText: {
+    fontSize: 13,
+    color: '#F04E05',
+    fontStyle: 'italic',
   },
   historyButton: {
     backgroundColor: '#f0f0f0',
@@ -1765,7 +1773,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+    marginBottom: 3,
+  },
+  rideLandmark: {
+    fontSize: 14,
+    color: '#F04E05',
     marginBottom: 5,
+    fontStyle: 'italic',
   },
   rideDest: {
     fontSize: 14,

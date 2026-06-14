@@ -9,20 +9,24 @@ if (!ORS_API_KEY) {
   console.warn('OpenRouteService API key is missing. Set ORS_API_KEY in .env and make sure app.config.js exports it.');
 }
 
-/**
- * Reverse geocode coordinates to a human-readable address.
- *
- * Priority order:
- *  1. Nominatim (OpenStreetMap) — free, no API key, returns house_number
- *  2. OpenRouteService — free tier, already in project
- *  3. Expo built-in — device OS geocoder, last resort
- */
+/** Build display-friendly address from whichever components are available */
+const buildFriendlyAddress = (
+  houseNumber: string,
+  street: string,
+  area: string,
+  city: string
+): string | null => {
+  const streetPart = [houseNumber, street].filter(Boolean).join(' ');
+  const parts = [streetPart, area, city].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : null;
+};
+
 export const reverseGeocodeCoords = async (
   latitude: number,
   longitude: number
 ): Promise<string> => {
 
-  // ── 1. Nominatim (OpenStreetMap) ────────────────────────────────────────
+  // ── 1. Nominatim (OpenStreetMap) — free, no API key ───────────────────────
   try {
     const response = await axios.get(
       'https://nominatim.openstreetmap.org/reverse',
@@ -31,35 +35,72 @@ export const reverseGeocodeCoords = async (
           lat: latitude,
           lon: longitude,
           format: 'jsonv2',
-          addressdetails: 1,
+          addressdetails: 2,
         },
         headers: {
-          // Required by Nominatim usage policy
           'User-Agent': 'RidaAuchi/1.0 (ridaauchi@expo.app)',
           'Accept-Language': 'en',
         },
+        timeout: 8000,
+      }
+    );
+
+    const data = response.data;
+    const addr = data?.address;
+
+    if (addr) {
+      const houseNumber = addr.house_number ?? '';
+      const road = addr.road ?? addr.pedestrian ?? addr.footway ?? addr.street ?? '';
+      const suburb = addr.suburb ?? addr.neighbourhood ?? addr.quarter ?? addr.village ?? '';
+      const city = addr.city ?? addr.town ?? addr.county ?? addr.state ?? '';
+
+      // If we have a road name or house number, build from components directly
+      if (houseNumber || road) {
+        const result = buildFriendlyAddress(houseNumber, road, suburb, city);
+        if (result) return result;
+      }
+
+      // If OSM has no street data for this area (common in Auchi),
+      // use display_name which often has more info
+      if (data.display_name) {
+        const parts = data.display_name.split(',').map((s: string) => s.trim());
+        const truncated = parts.slice(0, Math.min(3, parts.length)).join(', ');
+        if (truncated) return truncated;
+      }
+    }
+  } catch (e) {
+    console.warn('Nominatim failed, trying Photon:', e);
+  }
+
+  // ── 2. Photon (Komoot) — free, no API key ────────────────────────────────
+  try {
+    const response = await axios.get(
+      'https://photon.komoot.io/reverse',
+      {
+        params: { lat: latitude, lon: longitude, limit: 1, lang: 'en' },
         timeout: 6000,
       }
     );
 
-    const addr = response.data?.address;
-    if (addr) {
-      // Build the most specific address possible
-      const houseNumber = addr.house_number ?? '';
-      const road       = addr.road ?? addr.pedestrian ?? addr.footway ?? '';
-      const suburb     = addr.suburb ?? addr.neighbourhood ?? addr.quarter ?? '';
-      const city       = addr.city ?? addr.town ?? addr.village ?? addr.county ?? '';
+    const features = response.data?.features;
+    if (features && features.length > 0) {
+      const p = features[0].properties;
+      const houseNumber = p.housenumber ?? p.street_number ?? '';
+      const street = p.street ?? p.road ?? p.path ?? p.name ?? '';
+      const area = p.suburb ?? p.district ?? p.neighbourhood ?? p.borough ?? '';
+      const city = p.city ?? p.town ?? p.village ?? p.county ?? p.state ?? p.country ?? '';
 
-      // Format: "12 Federal Poly Road, Auchi" or "Federal Poly Road, Auchi"
-      const streetLine = [houseNumber, road].filter(Boolean).join(' ');
-      const parts = [streetLine, suburb, city].filter(Boolean);
-      if (parts.length > 0) return parts.join(', ');
+      if (houseNumber || street) {
+        const result = buildFriendlyAddress(houseNumber, street, area, city);
+        if (result) return result;
+      }
+      if (city) return city;
     }
   } catch (e) {
-    console.warn('Nominatim reverse geocode failed, trying ORS:', e);
+    console.warn('Photon failed, trying ORS:', e);
   }
 
-  // ── 2. OpenRouteService (fallback) ──────────────────────────────────────
+  // ── 3. OpenRouteService (fallback) ──────────────────────────────────────
   try {
     const response = await axios.get(
       'https://api.openrouteservice.org/geocode/reverse',
@@ -85,16 +126,16 @@ export const reverseGeocodeCoords = async (
       if (parts.length > 0) return parts.join(', ');
     }
   } catch (e) {
-    console.warn('ORS reverse geocode failed, trying Expo geocoder:', e);
+    console.warn('ORS failed, trying Expo geocoder:', e);
   }
 
-  // ── 3. Expo built-in (last resort) ──────────────────────────────────────
+  // ── 4. Expo built-in (last resort) ──────────────────────────────────────
   try {
     const results = await Location.reverseGeocodeAsync({ latitude, longitude });
     if (results.length > 0) {
-      const geo = results[0];
-      const parts = [geo.streetNumber, geo.street, geo.district, geo.city].filter(Boolean);
-      return parts.join(', ') || 'Your current location';
+      const g = results[0];
+      const parts = [g.streetNumber, g.street, g.district, g.city].filter(Boolean);
+      if (parts.length > 0) return parts.join(', ');
     }
   } catch (e) {
     console.warn('Expo reverse geocode also failed:', e);
@@ -102,8 +143,6 @@ export const reverseGeocodeCoords = async (
 
   return 'Your current location';
 };
-
-
 
 export interface Coordinates {
   lat: number;
@@ -114,13 +153,10 @@ export interface DistanceResult {
   distanceKm: number;
   durationMinutes: number;
   fare: number;
-  polyline?: string; // For map routing (optional)
 }
 
-// Fare constants (adjust for Auchi market)
-const BASE_FARE = 200; // ₦200
-const PER_KM_RATE = 100; // ₦100 per km
-const MIN_FARE = 300; // Minimum fare ₦300
+// Fixed fare for all rides in Auchi
+const FIXED_FARE = 7000; // ₦7,000
 
 export const calculateDistanceAndFare = async (
   pickup: Coordinates,
@@ -136,7 +172,7 @@ export const calculateDistanceAndFare = async (
       {
         coordinates: [start, end],
         units: 'km',
-        geometry: true // GeoJSON requires geometry; keep true to satisfy format
+        geometry: false
       },
       {
         headers: {
@@ -146,26 +182,19 @@ export const calculateDistanceAndFare = async (
       }
     );
     
-    // Extract distance and duration
     const distanceMeters = response.data.features[0].properties.segments[0].distance;
     const durationSeconds = response.data.features[0].properties.segments[0].duration;
     
     const distanceKm = distanceMeters / 1000;
     const durationMinutes = Math.ceil(durationSeconds / 60);
     
-    // Calculate fare
-    let fare = BASE_FARE + (distanceKm * PER_KM_RATE);
-    fare = Math.max(fare, MIN_FARE); // Ensure minimum fare
-    fare = Math.round(fare); // Round to nearest naira
-    
     return {
       distanceKm: parseFloat(distanceKm.toFixed(2)),
       durationMinutes,
-      fare
+      fare: FIXED_FARE, // Fixed ₦7,000
     };
     
   } catch (error) {
-    // Log detailed response when available to aid debugging (400/401/403 etc.)
     if (axios.isAxiosError(error) && error.response) {
       console.error('OpenRouteService error status:', error.response.status);
       console.error('OpenRouteService response data:', error.response.data);
@@ -173,23 +202,20 @@ export const calculateDistanceAndFare = async (
       console.error('OpenRouteService error:', error);
     }
     
-    // Fallback calculation (for when API fails)
-    // Estimate based on straight-line distance
+    // Fallback: straight-line estimate
     const estimatedDistance = estimateDistance(pickup, destination);
-    let fallbackFare = BASE_FARE + (estimatedDistance * PER_KM_RATE);
-    fallbackFare = Math.max(fallbackFare, MIN_FARE);
     
     return {
       distanceKm: estimatedDistance,
-      durationMinutes: Math.ceil(estimatedDistance * 2), // Assume 2 min per km
-      fare: Math.round(fallbackFare)
+      durationMinutes: Math.ceil(estimatedDistance * 2),
+      fare: FIXED_FARE, // Still ₦7,000
     };
   }
 };
 
-// Fallback: Haversine formula for straight-line distance
+// Haversine formula for straight-line distance
 const estimateDistance = (pickup: Coordinates, destination: Coordinates): number => {
-  const R = 6371; // Earth's radius in km
+  const R = 6371;
   const dLat = (destination.lat - pickup.lat) * Math.PI / 180;
   const dLon = (destination.lng - pickup.lng) * Math.PI / 180;
   const a = 
@@ -197,27 +223,5 @@ const estimateDistance = (pickup: Coordinates, destination: Coordinates): number
     Math.cos(pickup.lat * Math.PI / 180) * Math.cos(destination.lat * Math.PI / 180) * 
     Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c; // Distance in km
-};
-
-// Cache results to reduce API calls (optional)
-const distanceCache = new Map();
-
-export const getCachedDistance = async (
-  pickup: Coordinates,
-  destination: Coordinates
-): Promise<DistanceResult> => {
-  const cacheKey = `${pickup.lat},${pickup.lng}-${destination.lat},${destination.lng}`;
-  
-  if (distanceCache.has(cacheKey)) {
-    return distanceCache.get(cacheKey);
-  }
-  
-  const result = await calculateDistanceAndFare(pickup, destination);
-  distanceCache.set(cacheKey, result);
-  
-  // Clear cache after 10 minutes (optional)
-  setTimeout(() => distanceCache.delete(cacheKey), 10 * 60 * 1000);
-  
-  return result;
+  return R * c;
 };
