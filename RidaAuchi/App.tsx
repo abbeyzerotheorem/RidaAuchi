@@ -27,7 +27,7 @@ import {
   onAuthStateChanged
 } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { calculateDistanceAndFare } from './services/distanceService';
+import { calculateDistanceAndFare, reverseGeocodeCoords } from './services/distanceService';
 import { TextInput } from 'react-native'; // Add this
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth'; // Add this
 import { setDoc } from 'firebase/firestore'; // Add this
@@ -614,6 +614,9 @@ function RideApp() {
   }, []);
 
   useEffect(() => {
+    let locationSubscription: Location.LocationSubscription | null = null;
+    let settled = false;
+
     (async () => {
       if (!user) return;
 
@@ -625,28 +628,62 @@ function RideApp() {
           return;
         }
 
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
+        // Get a quick initial fix first so the UI is not blank
+        const initial = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
         });
+        setCurrentLocation(initial.coords);
 
-        setCurrentLocation(location.coords);
+        // Start watching for a more accurate GPS fix (BestForNavigation)
+        locationSubscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.BestForNavigation,
+            distanceInterval: 0, // fire on every improved reading
+            timeInterval: 1000,
+          },
+          async (loc) => {
+            if (settled) return;
+            // Accept the fix once accuracy is within 20 metres or after 8 seconds
+            if (loc.coords.accuracy !== null && loc.coords.accuracy <= 20) {
+              settled = true;
+              locationSubscription?.remove();
+              setCurrentLocation(loc.coords);
+              const address = await reverseGeocodeCoords(
+                loc.coords.latitude,
+                loc.coords.longitude
+              );
+              setPickupAddress(address);
+              setIsLoading(false);
+            }
+          }
+        );
 
-        const reverseGeocode = await Location.reverseGeocodeAsync({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        });
+        // Fallback: if GPS hasn't settled within 8 seconds, use best reading so far
+        setTimeout(async () => {
+          if (settled) return;
+          settled = true;
+          locationSubscription?.remove();
+          const best = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+          });
+          setCurrentLocation(best.coords);
+          const address = await reverseGeocodeCoords(
+            best.coords.latitude,
+            best.coords.longitude
+          );
+          setPickupAddress(address);
+          setIsLoading(false);
+        }, 8000);
 
-        if (reverseGeocode.length > 0) {
-          const geo = reverseGeocode[0];
-          const addressParts = [geo.name, geo.street, geo.district, geo.city].filter(Boolean);
-          setPickupAddress(addressParts.join(', ') || 'Your current location');
-        }
       } catch (error) {
         Alert.alert('Error', 'Could not get your location');
-      } finally {
         setIsLoading(false);
       }
     })();
+
+    return () => {
+      locationSubscription?.remove();
+    };
   }, [user]);
 
   useEffect(() => {

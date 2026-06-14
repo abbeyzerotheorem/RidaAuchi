@@ -1,5 +1,6 @@
 import axios from 'axios';
 import Constants from 'expo-constants';
+import * as Location from 'expo-location';
 
 const ORS_API_KEY = Constants.expoConfig?.extra?.openRouteService?.apiKey ?? '';
 const ORS_BASE_URL = 'https://api.openrouteservice.org/v2';
@@ -7,6 +8,61 @@ const ORS_BASE_URL = 'https://api.openrouteservice.org/v2';
 if (!ORS_API_KEY) {
   console.warn('OpenRouteService API key is missing. Set ORS_API_KEY in .env and make sure app.config.js exports it.');
 }
+
+/**
+ * Reverse geocode coordinates to a human-readable address using
+ * OpenRouteService (more accurate for Nigeria/Auchi), with fallback
+ * to Expo's built-in geocoder if ORS fails.
+ */
+export const reverseGeocodeCoords = async (
+  latitude: number,
+  longitude: number
+): Promise<string> => {
+  try {
+    const response = await axios.get(
+      `https://api.openrouteservice.org/geocode/reverse`,
+      {
+        params: {
+          'api_key': ORS_API_KEY,
+          'point.lon': longitude,
+          'point.lat': latitude,
+          'size': 1,
+        },
+        timeout: 6000,
+      }
+    );
+
+    const features = response.data?.features;
+    if (features && features.length > 0) {
+      const props = features[0].properties;
+      // Build a clean address from available parts
+      const parts = [
+        props.name,
+        props.street,
+        props.neighbourhood,
+        props.locality || props.county,
+      ].filter(Boolean);
+      if (parts.length > 0) return parts.join(', ');
+    }
+  } catch (e) {
+    console.warn('ORS reverse geocode failed, falling back to Expo geocoder:', e);
+  }
+
+  // Fallback: Expo built-in reverse geocoder
+  try {
+    const results = await Location.reverseGeocodeAsync({ latitude, longitude });
+    if (results.length > 0) {
+      const geo = results[0];
+      const parts = [geo.name, geo.street, geo.district, geo.city].filter(Boolean);
+      return parts.join(', ') || 'Your current location';
+    }
+  } catch (e) {
+    console.warn('Expo reverse geocode also failed:', e);
+  }
+
+  return 'Your current location';
+};
+
 
 export interface Coordinates {
   lat: number;
