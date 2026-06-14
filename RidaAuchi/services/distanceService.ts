@@ -10,17 +10,59 @@ if (!ORS_API_KEY) {
 }
 
 /**
- * Reverse geocode coordinates to a human-readable address using
- * OpenRouteService (more accurate for Nigeria/Auchi), with fallback
- * to Expo's built-in geocoder if ORS fails.
+ * Reverse geocode coordinates to a human-readable address.
+ *
+ * Priority order:
+ *  1. Nominatim (OpenStreetMap) — free, no API key, returns house_number
+ *  2. OpenRouteService — free tier, already in project
+ *  3. Expo built-in — device OS geocoder, last resort
  */
 export const reverseGeocodeCoords = async (
   latitude: number,
   longitude: number
 ): Promise<string> => {
+
+  // ── 1. Nominatim (OpenStreetMap) ────────────────────────────────────────
   try {
     const response = await axios.get(
-      `https://api.openrouteservice.org/geocode/reverse`,
+      'https://nominatim.openstreetmap.org/reverse',
+      {
+        params: {
+          lat: latitude,
+          lon: longitude,
+          format: 'jsonv2',
+          addressdetails: 1,
+        },
+        headers: {
+          // Required by Nominatim usage policy
+          'User-Agent': 'RidaAuchi/1.0 (ridaauchi@expo.app)',
+          'Accept-Language': 'en',
+        },
+        timeout: 6000,
+      }
+    );
+
+    const addr = response.data?.address;
+    if (addr) {
+      // Build the most specific address possible
+      const houseNumber = addr.house_number ?? '';
+      const road       = addr.road ?? addr.pedestrian ?? addr.footway ?? '';
+      const suburb     = addr.suburb ?? addr.neighbourhood ?? addr.quarter ?? '';
+      const city       = addr.city ?? addr.town ?? addr.village ?? addr.county ?? '';
+
+      // Format: "12 Federal Poly Road, Auchi" or "Federal Poly Road, Auchi"
+      const streetLine = [houseNumber, road].filter(Boolean).join(' ');
+      const parts = [streetLine, suburb, city].filter(Boolean);
+      if (parts.length > 0) return parts.join(', ');
+    }
+  } catch (e) {
+    console.warn('Nominatim reverse geocode failed, trying ORS:', e);
+  }
+
+  // ── 2. OpenRouteService (fallback) ──────────────────────────────────────
+  try {
+    const response = await axios.get(
+      'https://api.openrouteservice.org/geocode/reverse',
       {
         params: {
           'api_key': ORS_API_KEY,
@@ -31,13 +73,11 @@ export const reverseGeocodeCoords = async (
         timeout: 6000,
       }
     );
-
     const features = response.data?.features;
     if (features && features.length > 0) {
       const props = features[0].properties;
-      // Build a clean address from available parts
       const parts = [
-        props.name,
+        props.housenumber ? `${props.housenumber} ` : '',
         props.street,
         props.neighbourhood,
         props.locality || props.county,
@@ -45,15 +85,15 @@ export const reverseGeocodeCoords = async (
       if (parts.length > 0) return parts.join(', ');
     }
   } catch (e) {
-    console.warn('ORS reverse geocode failed, falling back to Expo geocoder:', e);
+    console.warn('ORS reverse geocode failed, trying Expo geocoder:', e);
   }
 
-  // Fallback: Expo built-in reverse geocoder
+  // ── 3. Expo built-in (last resort) ──────────────────────────────────────
   try {
     const results = await Location.reverseGeocodeAsync({ latitude, longitude });
     if (results.length > 0) {
       const geo = results[0];
-      const parts = [geo.name, geo.street, geo.district, geo.city].filter(Boolean);
+      const parts = [geo.streetNumber, geo.street, geo.district, geo.city].filter(Boolean);
       return parts.join(', ') || 'Your current location';
     }
   } catch (e) {
@@ -62,6 +102,7 @@ export const reverseGeocodeCoords = async (
 
   return 'Your current location';
 };
+
 
 
 export interface Coordinates {
