@@ -1,7 +1,12 @@
 import axios from 'axios';
+import Constants from 'expo-constants';
 
-const ORS_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjY2ZmRmZTdkNmU1NTRmNTliYjNkNjI2N2M4YTE0MzhlIiwiaCI6Im11cm11cjY0In0='; // Replace with your key
+const ORS_API_KEY = Constants.expoConfig?.extra?.openRouteService?.apiKey ?? '';
 const ORS_BASE_URL = 'https://api.openrouteservice.org/v2';
+
+if (!ORS_API_KEY) {
+  console.warn('OpenRouteService API key is missing. Set ORS_API_KEY in .env and make sure app.config.js exports it.');
+}
 
 export interface Coordinates {
   lat: number;

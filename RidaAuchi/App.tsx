@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   ScrollView,
   RefreshControl,
+  Image,
 } from 'react-native';
 import * as Location from 'expo-location';
 import {
@@ -21,9 +22,9 @@ import {
   acceptRide,
   getDriverRides,
 } from './services/firebase';
-import { 
+import {
   signOut,
-  onAuthStateChanged 
+  onAuthStateChanged
 } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { calculateDistanceAndFare } from './services/distanceService';
@@ -31,10 +32,10 @@ import { TextInput } from 'react-native'; // Add this
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth'; // Add this
 import { setDoc } from 'firebase/firestore'; // Add this
 import * as SplashScreen from 'expo-splash-screen';
+import CustomSplashScreen from './components/SplashScreen';
 
 SplashScreen.preventAutoHideAsync();
 
-// Replace JOHANNESBURG_DESTINATIONS with:
 const AUCHI_DESTINATIONS = [
   { name: 'Federal Poly Gate', lat: 7.0736, lng: 6.2636, description: 'Main Campus Entrance' },
   { name: 'Auchi Main Market', lat: 7.0720, lng: 6.2650, description: 'Central Market' },
@@ -49,6 +50,25 @@ const AUCHI_DESTINATIONS = [
 ]
 
 // ============ LOGIN SCREEN ============
+function SplashScreenPage({ onContinue }) {
+  return (
+    <View style={styles.splashContainer}>
+      <Image
+        source={require('./assets/splash.png')}
+        style={styles.splashImage}
+        resizeMode="cover"
+      />
+      <View style={styles.splashOverlay}>
+        <Text style={styles.splashTitle}>Welcome to RidaAuchi</Text>
+        <Text style={styles.splashSubtitle}>Your ride service for Auchi, Edo State</Text>
+        <TouchableOpacity style={styles.splashButton} onPress={onContinue}>
+          <Text style={styles.splashButtonText}>Continue</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 function LoginScreen({ onLogin, onSwitchToRegister }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -59,7 +79,7 @@ function LoginScreen({ onLogin, onSwitchToRegister }) {
       Alert.alert('Error', 'Please enter email and password');
       return;
     }
-    
+
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
@@ -77,7 +97,7 @@ function LoginScreen({ onLogin, onSwitchToRegister }) {
         <Text style={styles.authTitle}>RidaAuchi</Text>
         <Text style={styles.authSubtitle}>Your ride in Auchi, Edo State</Text>
         <Text style={styles.authHint}>Sign in as a rider or driver</Text>
-        
+
         <TextInput
           style={styles.authInput}
           placeholder="Email"
@@ -87,7 +107,7 @@ function LoginScreen({ onLogin, onSwitchToRegister }) {
           autoCapitalize="none"
           keyboardType="email-address"
         />
-        
+
         <TextInput
           style={styles.authInput}
           placeholder="Password"
@@ -96,16 +116,16 @@ function LoginScreen({ onLogin, onSwitchToRegister }) {
           onChangeText={setPassword}
           secureTextEntry
         />
-        
-        <TouchableOpacity 
-          style={styles.authButton} 
+
+        <TouchableOpacity
+          style={styles.authButton}
           onPress={handleLogin}
           disabled={loading}>
           <Text style={styles.authButtonText}>
             {loading ? 'Logging in...' : 'Login'}
           </Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity onPress={onSwitchToRegister}>
           <Text style={styles.authLink}>Don't have an account? Sign up</Text>
         </TouchableOpacity>
@@ -126,17 +146,17 @@ function RegisterScreen({ onRegister, onSwitchToLogin }) {
       Alert.alert('Error', 'Please fill all fields');
       return;
     }
-    
+
     if (password.length < 6) {
       Alert.alert('Error', 'Password must be at least 6 characters');
       return;
     }
-    
+
     setLoading(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      
+
       const userData: Record<string, string | boolean> = {
         name,
         email,
@@ -149,7 +169,7 @@ function RegisterScreen({ onRegister, onSwitchToLogin }) {
       }
 
       await setDoc(doc(db, 'users', user.uid), userData);
-      
+
       onRegister();
     } catch (error) {
       Alert.alert('Registration Failed', error.message);
@@ -163,7 +183,7 @@ function RegisterScreen({ onRegister, onSwitchToLogin }) {
       <View style={styles.authCard}>
         <Text style={styles.authTitle}>RidaAuchi</Text>
         <Text style={styles.authSubtitle}>Create your account</Text>
-        
+
         <Text style={styles.roleLabel}>I want to sign up as</Text>
         <View style={styles.roleToggle}>
           <TouchableOpacity
@@ -187,14 +207,14 @@ function RegisterScreen({ onRegister, onSwitchToLogin }) {
             Driver accounts require admin approval before you can accept rides.
           </Text>
         )}
-        
+
         <TextInput
           style={styles.authInput}
           placeholder="Full Name"
           value={name}
           onChangeText={setName}
         />
-        
+
         <TextInput
           style={styles.authInput}
           placeholder="Email"
@@ -203,7 +223,7 @@ function RegisterScreen({ onRegister, onSwitchToLogin }) {
           autoCapitalize="none"
           keyboardType="email-address"
         />
-        
+
         <TextInput
           style={styles.authInput}
           placeholder="Password (min 6 characters)"
@@ -211,16 +231,16 @@ function RegisterScreen({ onRegister, onSwitchToLogin }) {
           onChangeText={setPassword}
           secureTextEntry
         />
-        
-        <TouchableOpacity 
-          style={styles.authButton} 
+
+        <TouchableOpacity
+          style={styles.authButton}
           onPress={handleRegister}
           disabled={loading}>
           <Text style={styles.authButtonText}>
             {loading ? 'Creating account...' : 'Sign Up'}
           </Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity onPress={onSwitchToLogin}>
           <Text style={styles.authLink}>Already have an account? Login</Text>
         </TouchableOpacity>
@@ -236,6 +256,22 @@ function PendingApprovalScreen({ onLogout }) {
         <Text style={styles.pendingTitle}>Approval Pending</Text>
         <Text style={styles.pendingText}>
           Your driver account is waiting for admin approval. You will be able to accept rides once approved.
+        </Text>
+        <TouchableOpacity style={styles.authButton} onPress={onLogout}>
+          <Text style={styles.authButtonText}>Logout</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function SuspendedScreen({ onLogout }) {
+  return (
+    <View style={styles.centerContainer}>
+      <View style={styles.pendingCard}>
+        <Text style={styles.pendingTitle}>Account Suspended</Text>
+        <Text style={styles.pendingText}>
+          Your account has been suspended. Please contact support to resolve this issue.
         </Text>
         <TouchableOpacity style={styles.authButton} onPress={onLogout}>
           <Text style={styles.authButtonText}>Logout</Text>
@@ -573,14 +609,14 @@ function RideApp() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
     });
-    
+
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     (async () => {
       if (!user) return;
-      
+
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
@@ -634,20 +670,20 @@ function RideApp() {
       Alert.alert('Missing Info', 'Please select a destination');
       return;
     }
-    
+
     if (!currentLocation) {
       Alert.alert('Error', 'Could not detect your location');
       return;
     }
-    
+
     setIsLoading(true);
-    
+
     try {
       const result = await calculateDistanceAndFare(
         { lat: currentLocation.latitude, lng: currentLocation.longitude },
         destinationCoords
       );
-      
+
       setEstimatedFare(result.fare);
       setRideDistance(result.distanceKm);
       setRideDuration(result.durationMinutes);
@@ -662,7 +698,7 @@ function RideApp() {
 
   const handleConfirmRide = async () => {
     if (!user) return;
-    
+
     setStep('tracking');
     setRideStatus('searching');
     lastNotifiedStatusRef.current = 'searching';
@@ -681,9 +717,9 @@ function RideApp() {
         distanceKm: rideDistance,
         status: 'searching'
       });
-      
+
       setCurrentRideId(rideId);
-      
+
       // Set up real-time listener
       const unsubscribe = onSnapshot(doc(db, 'rides', rideId), (docSnap) => {
         if (!docSnap.exists()) return;
@@ -730,9 +766,9 @@ function RideApp() {
             break;
         }
       });
-      
+
       setUnsubscribeRide(() => unsubscribe);
-      
+
     } catch (error) {
       Alert.alert('Error', 'Could not create ride. Please try again.');
       setStep('pickup');
@@ -746,8 +782,8 @@ function RideApp() {
       'Are you sure you want to cancel?',
       [
         { text: 'No', style: 'cancel' },
-        { 
-          text: 'Yes', 
+        {
+          text: 'Yes',
           onPress: async () => {
             if (unsubscribeRide) {
               unsubscribeRide();
@@ -788,7 +824,7 @@ function RideApp() {
             <Text style={styles.backButtonText}>Back</Text>
           </TouchableOpacity>
         </View>
-        
+
         <ScrollView style={styles.historyList}>
           {rideHistory.length === 0 ? (
             <View style={styles.emptyHistory}>
@@ -802,8 +838,8 @@ function RideApp() {
                   <Text style={styles.historyDate}>
                     {new Date(ride.createdAt).toLocaleDateString()}
                   </Text>
-                  <View style={[styles.historyStatus, 
-                    { backgroundColor: ride.status === 'completed' ? '#4CAF50' : '#FFA500' }]}>
+                  <View style={[styles.historyStatus,
+                  { backgroundColor: ride.status === 'completed' ? '#4CAF50' : '#FFA500' }]}>
                     <Text style={styles.historyStatusText}>{ride.status}</Text>
                   </View>
                 </View>
@@ -834,13 +870,13 @@ function RideApp() {
           <View style={styles.card}>
             <Text style={styles.label}>📍 Pickup Location</Text>
             <Text style={styles.address}>{pickupAddress}</Text>
-            
+
             <View style={styles.divider} />
-            
+
             <Text style={styles.label}>🎯 Select Destination</Text>
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false} 
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
               style={styles.destinationScroll}>
               {AUCHI_DESTINATIONS.map((dest) => (
                 <TouchableOpacity
@@ -864,16 +900,16 @@ function RideApp() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            
+
             {selectedDestination && (
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.primaryButton}
                 onPress={handleRequestRide}>
                 <Text style={styles.primaryButtonText}>Request Ride to {selectedDestination}</Text>
               </TouchableOpacity>
             )}
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={styles.historyButton}
               onPress={loadRideHistory}>
               <Text style={styles.historyButtonText}>View Ride History</Text>
@@ -895,30 +931,30 @@ function RideApp() {
         <View style={styles.card}>
           <Text style={styles.label}>From</Text>
           <Text style={styles.address}>{pickupAddress}</Text>
-          
+
           <Text style={styles.label}>To</Text>
           <Text style={styles.address}>{selectedDestination}</Text>
-          
+
           {rideDistance && (
             <View style={styles.distanceBox}>
               <Text style={styles.distanceText}>📏 Distance: {rideDistance} km</Text>
               <Text style={styles.durationText}>⏱️ Est. time: {rideDuration} minutes</Text>
             </View>
           )}
-          
+
           <View style={styles.fareBox}>
             <Text style={styles.fareLabel}>Estimated Fare</Text>
             <Text style={styles.fareAmount}>₦{estimatedFare}</Text>
             <Text style={styles.fareNote}>Cash payment to driver</Text>
           </View>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={styles.primaryButton}
             onPress={handleConfirmRide}>
             <Text style={styles.primaryButtonText}>Confirm Ride</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={styles.secondaryButton}
             onPress={() => setStep('pickup')}>
             <Text style={styles.secondaryButtonText}>Change Destination</Text>
@@ -931,7 +967,7 @@ function RideApp() {
   // Tracking Screen
   if (step === 'tracking') {
     const getStatusMessage = () => {
-      switch(rideStatus) {
+      switch (rideStatus) {
         case 'searching': return 'Finding a driver near you...';
         case 'accepted': return 'Driver assigned. They are on the way.';
         case 'arrived': return 'Driver has arrived at your location.';
@@ -942,7 +978,7 @@ function RideApp() {
     };
 
     const getStatusColor = () => {
-      switch(rideStatus) {
+      switch (rideStatus) {
         case 'searching': return '#FFA500';
         case 'accepted': return '#2196F3';
         case 'arrived': return '#4CAF50';
@@ -961,7 +997,7 @@ function RideApp() {
         <View style={styles.trackingCard}>
           <View style={[styles.statusIndicator, { backgroundColor: getStatusColor() }]} />
           <Text style={styles.statusMessage}>{getStatusMessage()}</Text>
-          
+
           <View style={styles.routeInfo}>
             <View style={styles.routePoint}>
               <View style={styles.routeDotPickup} />
@@ -975,7 +1011,7 @@ function RideApp() {
           </View>
 
           {rideStatus !== 'completed' && rideStatus !== 'cancelled' && (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.cancelButton}
               onPress={handleCancelRide}>
               <Text style={styles.cancelButtonText}>Cancel Ride</Text>
@@ -994,10 +1030,13 @@ function RideApp() {
 export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
   const [showLogin, setShowLogin] = useState(true);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [authUser, setAuthUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [profileListener, setProfileListener] = useState<(() => void) | null>(null);
 
   useEffect(() => {
     async function prepare() {
@@ -1015,16 +1054,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setAuthUser(user);
       setIsAuthenticated(!!user);
       setCheckingAuth(false);
 
-      if (user) {
-        setLoadingProfile(true);
-        const profile = await getUserProfile(user.uid);
-        setUserProfile(profile);
-        setLoadingProfile(false);
-      } else {
+      if (!user) {
         setUserProfile(null);
         setLoadingProfile(false);
       }
@@ -1032,6 +1067,34 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (profileListener) {
+      profileListener();
+      setProfileListener(null);
+    }
+
+    if (!authUser) {
+      return;
+    }
+
+    setLoadingProfile(true);
+    const userRef = doc(db, 'users', authUser.uid);
+    const unsubscribeProfile = onSnapshot(userRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setUserProfile({ id: docSnap.id, ...docSnap.data() });
+      } else {
+        setUserProfile(null);
+      }
+      setLoadingProfile(false);
+    }, (error) => {
+      console.error('Profile listener error:', error);
+      setLoadingProfile(false);
+    });
+
+    setProfileListener(() => unsubscribeProfile);
+    return () => unsubscribeProfile();
+  }, [authUser]);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -1052,7 +1115,15 @@ export default function App() {
     );
   }
 
+  if (!isAuthenticated && showSplash) {
+    return <CustomSplashScreen onFinish={() => setShowSplash(false)} />;
+  }
+
   if (isAuthenticated) {
+    if (userProfile?.isSuspended) {
+      return <SuspendedScreen onLogout={handleLogout} />;
+    }
+
     const role = userProfile?.role;
 
     if (role === 'driver') {
@@ -1112,6 +1183,47 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
+  },
+  splashContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  splashImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  splashOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    padding: 30,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  splashTitle: {
+    fontSize: 34,
+    fontWeight: 'bold',
+    color: 'white',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  splashSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.9)',
+    textAlign: 'center',
+    marginBottom: 25,
+  },
+  splashButton: {
+    backgroundColor: '#F04E05',
+    paddingVertical: 15,
+    paddingHorizontal: 35,
+    borderRadius: 50,
+    marginBottom: 40,
+  },
+  splashButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   header: {
     backgroundColor: '#F04E05',
@@ -1424,7 +1536,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#999',
   },
-  
+
   // Auth Styles
   authContainer: {
     flex: 1,

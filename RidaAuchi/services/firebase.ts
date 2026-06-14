@@ -1,5 +1,8 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import Constants from 'expo-constants';
+import { getApps, initializeApp } from 'firebase/app';
+// @ts-ignore
+import { initializeAuth, getReactNativePersistence, getAuth } from 'firebase/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getFirestore,
   initializeFirestore,
@@ -15,20 +18,31 @@ import {
   orderBy,
   limit,
   runTransaction,
+  serverTimestamp,
 } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCI5GuTTd5sNKdIXBETbLnjM77lzF1cGRw",
-  authDomain: "edomove-cb308.firebaseapp.com",
-  projectId: "edomove-cb308",
-  storageBucket: "edomove-cb308.firebasestorage.app",
-  messagingSenderId: "845157752128",
-  appId: "1:845157752128:web:74243da6a49bcce4d06ea5",
-  measurementId: "G-BMKBXNYD5Z"
+  apiKey: Constants.expoConfig?.extra?.firebase?.apiKey ?? '',
+  authDomain: Constants.expoConfig?.extra?.firebase?.authDomain ?? '',
+  projectId: Constants.expoConfig?.extra?.firebase?.projectId ?? '',
+  storageBucket: Constants.expoConfig?.extra?.firebase?.storageBucket ?? '',
+  messagingSenderId: Constants.expoConfig?.extra?.firebase?.messagingSenderId ?? '',
+  appId: Constants.expoConfig?.extra?.firebase?.appId ?? '',
+  measurementId: Constants.expoConfig?.extra?.firebase?.measurementId ?? '',
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+
+let authInstance;
+try {
+  authInstance = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage),
+  });
+} catch (error) {
+  authInstance = getAuth(app);
+}
+
+export const auth = authInstance;
 
 initializeFirestore(app, {
   cacheSizeBytes: CACHE_SIZE_UNLIMITED,
@@ -58,7 +72,7 @@ export const createRide = async (rideData: any) => {
   try {
     const docRef = await addDoc(collection(db, 'rides'), {
       ...rideData,
-      createdAt: new Date(),
+      createdAt: serverTimestamp(),
       status: 'searching',
     });
     return docRef.id;
@@ -74,7 +88,7 @@ export const updateRideStatus = async (rideId: string, status: string, additiona
     await updateDoc(rideRef, {
       status,
       ...additionalData,
-      updatedAt: new Date().toISOString(),
+      updatedAt: serverTimestamp(),
     });
   } catch (error) {
     console.error('Error updating ride:', error);
@@ -98,11 +112,11 @@ export const getUserRides = async (userId: string) => {
     const ridesQuery = query(
       collection(db, 'rides'),
       where('riderId', '==', userId),
+      orderBy('createdAt', 'desc'),
       limit(50)
     );
     const querySnapshot = await getDocs(ridesQuery);
-    const rides = querySnapshot.docs.map((rideDoc) => ({ id: rideDoc.id, ...rideDoc.data() }));
-    return rides.sort((a, b) => getTimestampValue(b.createdAt) - getTimestampValue(a.createdAt));
+    return querySnapshot.docs.map((rideDoc) => ({ id: rideDoc.id, ...rideDoc.data() }));
   } catch (error) {
     console.error('Error getting user rides:', error);
     return [];
@@ -145,8 +159,8 @@ export const acceptRide = async (rideId: string, driverId: string, driverName: s
         driverId,
         driverName,
         status: 'accepted',
-        acceptedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        acceptedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
     });
 

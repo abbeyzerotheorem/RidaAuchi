@@ -4,7 +4,7 @@
     "slug": "RidaAuchi",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/splash-icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
@@ -13,16 +13,11 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "cover",
-      "backgroundColor": "#F04E05"
-    },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#F04E05",
-        "foregroundImage": "./assets/icon.png",
-        "backgroundImage": "./assets/splash.png",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
@@ -37,7 +32,14 @@
       }
     },
     "plugins": [
-      "expo-splash-screen"
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F04E05",
+          "image": "./assets/splash.png",
+          "resizeMode": "cover"
+        }
+      ]
     ]
   }
 }
